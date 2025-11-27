@@ -222,6 +222,24 @@ public class CouponService {
     }
     
     /**
+     * Activar/Desactivar un cupón (admin)
+     */
+    @Transactional
+    public CouponDTO toggleCouponStatus(Long couponId) {
+        Coupon coupon = couponRepository.findById(couponId)
+                .orElseThrow(() -> new ResourceNotFoundException("Cupón", "id", couponId));
+        
+        // Alternar el estado
+        coupon.setIsActive(!coupon.getIsActive());
+        Coupon updated = couponRepository.save(coupon);
+        
+        log.info("✅ Estado del cupón {} actualizado a: {}", 
+                coupon.getCode(), updated.getIsActive() ? "ACTIVO" : "INACTIVO");
+        
+        return convertToDTO(updated);
+    }
+    
+    /**
      * Convertir entidad a DTO
      */
     private CouponDTO convertToDTO(Coupon coupon) {

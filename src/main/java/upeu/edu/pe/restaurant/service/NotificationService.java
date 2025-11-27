@@ -2,8 +2,9 @@ package upeu.edu.pe.restaurant.service;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import lombok.RequiredArgsConstructor;
+import com.google.firebase.messaging.BatchResponse;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import upeu.edu.pe.restaurant.dto.NotificationDTO;
@@ -13,20 +14,32 @@ import upeu.edu.pe.restaurant.repository.NotificationLogRepository;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class NotificationService {
     
     private final NotificationLogRepository notificationLogRepository;
     private final FCMTokenService fcmTokenService;
+    private final FirebaseMessagingService firebaseMessagingService;
     private final ObjectMapper objectMapper;
     
+    public NotificationService(
+        NotificationLogRepository notificationLogRepository,
+        FCMTokenService fcmTokenService,
+        @Autowired(required = false) FirebaseMessagingService firebaseMessagingService,
+        ObjectMapper objectMapper
+    ) {
+        this.notificationLogRepository = notificationLogRepository;
+        this.fcmTokenService = fcmTokenService;
+        this.firebaseMessagingService = firebaseMessagingService;
+        this.objectMapper = objectMapper;
+    }
+    
     /**
-     * Enviar notificación a un usuario
-     * NOTA: Implementación básica sin Firebase Admin SDK
-     * Para producción, integrar Firebase Admin SDK
+     * Enviar notificación a un usuario usando Firebase Cloud Messaging
      */
     @Transactional
     public void sendNotification(NotificationDTO notificationDTO) {
@@ -42,9 +55,16 @@ public class NotificationService {
     }
     
     /**
-     * Enviar notificación a un usuario específico
+     * Enviar notificación a un usuario específico con FCM
      */
     private void sendToUser(Long userId, NotificationDTO notificationDTO) {
+        // Verificar si Firebase está configurado
+        if (firebaseMessagingService == null) {
+            log.warn("⚠️ Firebase no configurado. No se puede enviar notificación a usuario ID: {}", userId);
+            logNotification(userId, notificationDTO);
+            return;
+        }
+        
         // Obtener tokens activos del usuario
         List<FCMToken> tokens = fcmTokenService.getActiveTokensByUserId(userId);
         
@@ -53,35 +73,49 @@ public class NotificationService {
             return;
         }
         
-        // TODO: Integrar con Firebase Admin SDK
-        // Por ahora solo registramos en el log
-        logNotification(userId, notificationDTO);
-        
-        log.info("Notificación enviada a usuario ID: {} (tokens: {})", userId, tokens.size());
-        
-        /* Ejemplo de implementación con Firebase Admin SDK:
-        
+        // Extraer strings de tokens
         List<String> tokenStrings = tokens.stream()
                 .map(FCMToken::getToken)
                 .collect(Collectors.toList());
         
-        MulticastMessage message = MulticastMessage.builder()
-                .setNotification(Notification.builder()
-                        .setTitle(notificationDTO.getTitle())
-                        .setBody(notificationDTO.getBody())
-                        .build())
-                .putAllData(notificationDTO.getData())
-                .addAllTokens(tokenStrings)
-                .build();
+        // Enviar notificación usando Firebase
+        BatchResponse response = firebaseMessagingService.sendNotificationToMultipleTokens(
+                tokenStrings,
+                notificationDTO.getTitle(),
+                notificationDTO.getBody(),
+                notificationDTO.getData()
+        );
         
-        try {
-            BatchResponse response = FirebaseMessaging.getInstance().sendMulticast(message);
-            log.info("Notificaciones enviadas: success={}, failure={}", 
-                    response.getSuccessCount(), response.getFailureCount());
-        } catch (FirebaseMessagingException e) {
-            log.error("Error al enviar notificación", e);
+        // Limpiar tokens inválidos si hay fallos
+        if (response != null && response.getFailureCount() > 0) {
+            List<String> invalidTokens = firebaseMessagingService.getInvalidTokens(response, tokenStrings);
+            cleanupInvalidTokens(invalidTokens);
         }
-        */
+        
+        // Registrar notificación en el log
+        logNotification(userId, notificationDTO);
+        
+        log.info("✅ Notificación enviada a usuario ID: {} (tokens: {}, éxito: {}, fallos: {})", 
+                userId, 
+                tokens.size(),
+                response != null ? response.getSuccessCount() : 0,
+                response != null ? response.getFailureCount() : 0);
+    }
+    
+    /**
+     * Limpiar tokens inválidos
+     */
+    @Transactional
+    public void cleanupInvalidTokens(List<String> invalidTokens) {
+        if (invalidTokens == null || invalidTokens.isEmpty()) {
+            return;
+        }
+        
+        for (String token : invalidTokens) {
+            fcmTokenService.deactivateToken(token);
+        }
+        
+        log.info("🧹 Limpiados {} tokens inválidos", invalidTokens.size());
     }
     
     /**
@@ -109,48 +143,110 @@ public class NotificationService {
     /**
      * Notificar cambio de estado de pedido
      */
+    @Transactional
     public void notifyOrderStatusChange(Long userId, Long orderId, String newStatus) {
-        String title;
-        String body;
-        
-        switch (newStatus.toLowerCase()) {
-            case "confirmed":
-                title = "✅ Pedido confirmado";
-                body = String.format("Tu pedido #%d ha sido confirmado y está siendo preparado", orderId);
-                break;
-            case "preparing":
-                title = "👨‍🍳 Preparando tu pedido";
-                body = String.format("El restaurante está preparando tu pedido #%d", orderId);
-                break;
-            case "on_the_way":
-                title = "🚚 ¡Tu pedido está en camino!";
-                body = String.format("El repartidor está en camino con tu pedido #%d", orderId);
-                break;
-            case "delivered":
-                title = "🎉 ¡Pedido entregado!";
-                body = String.format("Tu pedido #%d ha sido entregado. ¡Buen provecho!", orderId);
-                break;
-            case "cancelled":
-                title = "❌ Pedido cancelado";
-                body = String.format("Tu pedido #%d ha sido cancelado", orderId);
-                break;
-            default:
-                title = "📦 Actualización de pedido";
-                body = String.format("Tu pedido #%d ha sido actualizado", orderId);
-                break;
+        if (userId == null || orderId == null || newStatus == null) {
+            log.warn("Parámetros inválidos para notificación de pedido");
+            return;
         }
         
-        NotificationDTO notification = new NotificationDTO();
-        notification.setUserId(userId);
-        notification.setType("order_status");
-        notification.setTitle(title);
-        notification.setBody(body);
-        notification.setData(java.util.Map.of(
-                "orderId", orderId.toString(),
+        // Obtener tokens activos del usuario
+        List<FCMToken> tokens = fcmTokenService.getActiveTokensByUserId(userId);
+        
+        if (tokens.isEmpty()) {
+            log.warn("No se encontraron tokens activos para usuario ID: {} (pedido #{})", userId, orderId);
+            return;
+        }
+        
+        // Enviar notificación usando Firebase
+        firebaseMessagingService.sendOrderStatusNotification(
+                tokens,
+                orderId,
+                newStatus,
+                getStatusText(newStatus)
+        );
+        
+        // Registrar en el log
+        NotificationDTO dto = new NotificationDTO();
+        dto.setUserId(userId);
+        dto.setType("order_status");
+        dto.setTitle(getOrderStatusTitle(newStatus));
+        dto.setBody(String.format(getOrderStatusBody(newStatus), orderId));
+        dto.setData(Map.of(
+                "type", "order_status",
+                "id", orderId.toString(),
                 "status", newStatus
         ));
         
-        sendNotification(notification);
+        logNotification(userId, dto);
+        
+        log.info("📱 Notificación de pedido enviada a usuario ID: {} (pedido #{}, estado: {})", 
+                userId, orderId, newStatus);
+    }
+    
+    /**
+     * Notificar oferta especial
+     */
+    @Transactional
+    public void notifySpecialOffer(Long userId, String offerTitle, String offerDescription, String couponId) {
+        List<FCMToken> tokens = fcmTokenService.getActiveTokensByUserId(userId);
+        
+        if (tokens.isEmpty()) {
+            log.warn("No se encontraron tokens activos para usuario ID: {}", userId);
+            return;
+        }
+        
+        firebaseMessagingService.sendSpecialOfferNotification(
+                tokens,
+                offerTitle,
+                offerDescription,
+                couponId
+        );
+        
+        // Registrar en el log
+        NotificationDTO dto = new NotificationDTO();
+        dto.setUserId(userId);
+        dto.setType("special_offer");
+        dto.setTitle("🎁 " + offerTitle);
+        dto.setBody(offerDescription);
+        dto.setData(Map.of(
+                "type", "special_offer",
+                "id", couponId != null ? couponId : ""
+        ));
+        
+        logNotification(userId, dto);
+    }
+    
+    /**
+     * Notificar nuevo restaurante
+     */
+    @Transactional
+    public void notifyNewRestaurant(Long userId, Long restaurantId, String restaurantName) {
+        List<FCMToken> tokens = fcmTokenService.getActiveTokensByUserId(userId);
+        
+        if (tokens.isEmpty()) {
+            log.warn("No se encontraron tokens activos para usuario ID: {}", userId);
+            return;
+        }
+        
+        firebaseMessagingService.sendNewRestaurantNotification(
+                tokens,
+                restaurantId,
+                restaurantName
+        );
+        
+        // Registrar en el log
+        NotificationDTO dto = new NotificationDTO();
+        dto.setUserId(userId);
+        dto.setType("new_restaurant");
+        dto.setTitle("🏪 ¡Nuevo restaurante disponible!");
+        dto.setBody(String.format("Descubre la deliciosa comida de %s", restaurantName));
+        dto.setData(Map.of(
+                "type", "new_restaurant",
+                "id", restaurantId.toString()
+        ));
+        
+        logNotification(userId, dto);
     }
     
     /**
@@ -184,5 +280,40 @@ public class NotificationService {
      */
     public long countUnread(Long userId) {
         return notificationLogRepository.countByUserIdAndReadAtIsNull(userId);
+    }
+    
+    // ========== MÉTODOS AUXILIARES ==========
+    
+    private String getStatusText(String status) {
+        return switch (status.toLowerCase()) {
+            case "confirmed" -> "confirmado";
+            case "preparing" -> "en preparación";
+            case "on_the_way" -> "en camino";
+            case "delivered" -> "entregado";
+            case "cancelled" -> "cancelado";
+            default -> "actualizado";
+        };
+    }
+    
+    private String getOrderStatusTitle(String status) {
+        return switch (status.toLowerCase()) {
+            case "confirmed" -> "✅ Pedido confirmado";
+            case "preparing" -> "👨‍🍳 Preparando tu pedido";
+            case "on_the_way" -> "🚚 ¡Tu pedido está en camino!";
+            case "delivered" -> "🎉 ¡Pedido entregado!";
+            case "cancelled" -> "❌ Pedido cancelado";
+            default -> "📦 Actualización de pedido";
+        };
+    }
+    
+    private String getOrderStatusBody(String status) {
+        return switch (status.toLowerCase()) {
+            case "confirmed" -> "Tu pedido #%d ha sido confirmado y está siendo preparado";
+            case "preparing" -> "El restaurante está preparando tu pedido #%d";
+            case "on_the_way" -> "El repartidor está en camino con tu pedido #%d";
+            case "delivered" -> "Tu pedido #%d ha sido entregado. ¡Buen provecho!";
+            case "cancelled" -> "Tu pedido #%d ha sido cancelado";
+            default -> "Tu pedido #%d ha sido actualizado";
+        };
     }
 }

@@ -1,5 +1,6 @@
 package upeu.edu.pe.restaurant.controller;
 
+import upeu.edu.pe.restaurant.dto.UpdateProfileDTO;
 import upeu.edu.pe.restaurant.dto.request.LoginRequest;
 import upeu.edu.pe.restaurant.dto.request.RegisterRequest;
 import upeu.edu.pe.restaurant.dto.response.ApiResponse;
@@ -50,6 +51,27 @@ public class AuthController {
         return ResponseEntity.ok(
                 ApiResponse.success("Profile retrieved successfully", 
                         UserResponse.fromUser(user))
+        );
+    }
+    
+    @PutMapping("/profile")
+    public ResponseEntity<ApiResponse<UserResponse>> updateProfile(
+            Authentication authentication,
+            @Valid @RequestBody UpdateProfileDTO request) {
+        String email = authentication.getName();
+        User user = userRepository.findByEmail(email)
+                .orElseThrow(() -> new RuntimeException("User not found"));
+        
+        // Actualizar nombre y teléfono
+        user.setName(request.getName());
+        user.setPhone(request.getPhone());
+        
+        // Guardar cambios
+        User updatedUser = userRepository.save(user);
+        
+        return ResponseEntity.ok(
+                ApiResponse.success("Profile updated successfully", 
+                        UserResponse.fromUser(updatedUser))
         );
     }
 }

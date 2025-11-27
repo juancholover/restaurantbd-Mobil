@@ -64,12 +64,11 @@ public class Order {
     @UpdateTimestamp
     private LocalDateTime updatedAt;
     
-    // ⚠️ IMPORTANTE: Usar List en lugar de Set para evitar ConcurrentModificationException
     @OneToMany(mappedBy = "order", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
     @Builder.Default
     private List<OrderItem> orderItems = new ArrayList<>();
     
-    // Métodos auxiliares para evitar ConcurrentModificationException
+
     public void addOrderItem(OrderItem item) {
         if (orderItems == null) {
             orderItems = new ArrayList<>();

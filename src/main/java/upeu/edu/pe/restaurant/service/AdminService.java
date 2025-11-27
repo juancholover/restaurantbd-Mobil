@@ -32,9 +32,7 @@ public class AdminService {
     @Autowired
     private CouponRepository couponRepository;
 
-    /**
-     * Obtener estadísticas generales del dashboard
-     */
+   
     public Map<String, Object> getGeneralStats() {
         Map<String, Object> stats = new HashMap<>();
         
@@ -61,9 +59,7 @@ public class AdminService {
         return stats;
     }
     
-    /**
-     * Obtener órdenes recientes
-     */
+    
     public List<Map<String, Object>> getRecentOrders(int limit) {
         List<Order> orders = orderRepository.findRecentOrders(PageRequest.of(0, limit));
         
@@ -84,9 +80,7 @@ public class AdminService {
         }).collect(Collectors.toList());
     }
     
-    /**
-     * Obtener cupones activos
-     */
+   
     public List<Coupon> getActiveCoupons() {
         return couponRepository.findActiveCoupons(LocalDateTime.now());
     }

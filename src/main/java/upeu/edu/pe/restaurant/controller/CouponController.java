@@ -120,4 +120,23 @@ public class CouponController {
                 )
         );
     }
+    
+    /**
+     * Activar/Desactivar un cupón (SOLO ADMIN)
+     * PUT /api/coupons/{id}/toggle
+     */
+    @PutMapping("/{id}/toggle")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<ApiResponse<CouponDTO>> toggleCoupon(@PathVariable Long id) {
+        log.info("📥 PUT /api/coupons/{}/toggle - Alternando estado del cupón", id);
+        
+        CouponDTO toggled = couponService.toggleCouponStatus(id);
+        
+        return ResponseEntity.ok(
+                ApiResponse.success(
+                        "Estado del cupón actualizado", 
+                        toggled
+                )
+        );
+    }
 }

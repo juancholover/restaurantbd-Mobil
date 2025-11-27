@@ -13,16 +13,13 @@ import java.util.Map;
 
 @RestController
 @RequestMapping("/api/admin")
-@PreAuthorize("hasRole('ADMIN')") // Solo usuarios con rol ADMIN
+@PreAuthorize("hasRole('ADMIN')") 
 public class AdminController {
 
     @Autowired
     private AdminService adminService;
 
-    /**
-     * GET /api/admin/stats
-     * Obtener estadísticas generales del dashboard
-     */
+ 
     @GetMapping("/stats")
     public ResponseEntity<?> getStats() {
         try {
@@ -40,10 +37,7 @@ public class AdminController {
         }
     }
     
-    /**
-     * GET /api/admin/recent-orders
-     * Obtener las últimas órdenes del sistema
-     */
+  
     @GetMapping("/recent-orders")
     public ResponseEntity<?> getRecentOrders(
             @RequestParam(defaultValue = "10") int limit) {
@@ -62,10 +56,7 @@ public class AdminController {
         }
     }
     
-    /**
-     * GET /api/admin/active-coupons
-     * Obtener cupones activos
-     */
+
     @GetMapping("/active-coupons")
     public ResponseEntity<?> getActiveCoupons() {
         try {

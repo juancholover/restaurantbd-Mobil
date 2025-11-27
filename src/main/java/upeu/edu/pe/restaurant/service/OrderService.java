@@ -22,6 +22,7 @@ public class OrderService {
     private final RestaurantRepository restaurantRepository;
     private final MenuItemRepository menuItemRepository;
     private final OrderItemRepository orderItemRepository;
+    private final NotificationService notificationService;
     
     @Transactional
     public OrderDTO createOrder(String userEmail, CreateOrderRequest request) {
@@ -120,6 +121,14 @@ public class OrderService {
         }
         
         Order updated = orderRepository.save(order);
+        
+        // 🔔 Enviar notificación al usuario
+        notificationService.notifyOrderStatusChange(
+                updated.getUser().getId(),
+                updated.getId(),
+                status
+        );
+        
         return convertToDTO(updated);
     }
     
@@ -137,6 +146,14 @@ public class OrderService {
         }
         
         Order updated = orderRepository.save(order);
+        
+        // 🔔 Enviar notificación al usuario
+        notificationService.notifyOrderStatusChange(
+                updated.getUser().getId(),
+                updated.getId(),
+                status
+        );
+        
         return convertToDTO(updated);
     }
     

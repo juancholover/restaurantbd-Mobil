@@ -31,3 +31,17 @@ build/
 
 ### VS Code ###
 .vscode/
+
+### Environment Variables ###
+.env
+.env.local
+.env.*.local
+
+### Firebase Credentials ###
+firebase-service-account.json
+*-firebase-adminsdk-*.json
+config/firebase-*.json
+
+### Sensitive Configuration ###
+application-local.properties
+application-prod.properties
